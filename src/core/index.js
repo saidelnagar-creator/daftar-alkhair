@@ -1,0 +1,18 @@
+// نقطة تصدير واحدة للمنطق المحاسبي الخالص (تُستخدم في الواجهة والاختبارات وأدوات الترحيل).
+export * from './money.js';
+export * from './util.js';
+export * from './engine.js';
+export * from './ledger.js';
+export * from './subscriptions.js';
+export * from './families.js';
+export * from './validate.js';
+export * from './book.js';
+export * from './closing.js';
+export * from './reports.js';
+export * from './backup.js';
+export * from './migrations/index.js';
+export { sha256 } from './sha256.js';
+export { RULES } from '../config/rules.js';
+export * from './xlsx.js';
+export * from './statements.js';
+export * from './crypto-backup.js';
