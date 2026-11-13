@@ -6,11 +6,12 @@
 //   4) أضف اختباراً في tests/unit/migrations.test.mjs مع ملف fixture بالإصدار القديم.
 import { m002 } from './002-decimal-scales.js';
 import { m003 } from './003-precision-setting.js';
+import { m004 } from './004-need-inkind-waqf.js';
 
-export const MIGRATIONS = [m002, m003];
+export const MIGRATIONS = [m002, m003, m004];
 
 // رقم إصدار الهيكل الحالي = آخر ترحيل.
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export class MigrationError extends Error {
   constructor(message) {

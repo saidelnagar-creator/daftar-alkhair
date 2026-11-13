@@ -8,6 +8,7 @@ import { computeLedger, assetPosition, itemPosition } from '../core/ledger.js';
 import { buildStatements } from '../core/statements.js';
 import { MONEY, QTY, ASSET } from '../core/money.js';
 import { collator } from './widgets.js';
+import { currentAssessment } from '../core/need.js';
 
 // الفترة: سنة مالية (ما قبل بداية الدفاتر يُحسب ضمن أول سنة) أو الكل.
 export function periodOf(S, value) {
@@ -107,7 +108,8 @@ export function buildReports(S, period) {
 }
 
 // جداول إضافية للتصدير فقط.
-export function buildExtraSheets(S, period) {
+// includeNeed: ورقة تقييم الاحتياج (حساسة) لا تُضاف إلا باختيار صريح.
+export function buildExtraSheets(S, period, { includeNeed = false } = {}) {
   const nowMonth = ctx.nowMonth();
   const led = computeLedger(S, period.to || null);
   const sheets = [];
@@ -143,6 +145,15 @@ export function buildExtraSheets(S, period) {
       rows.push([mv.date, d.kind, d.title, d.party, d.sign < 0 ? -d.amount : d.amount, mv.note || mv.reason || '']);
     }
     sheets.push({ title: 'الحركات', cols, rows });
+  }
+  if (includeNeed) {
+    const cols = [T('الأسرة'), T('تاريخ التقييم'), T('الفئة'), T('الاحتياج (ج)', 'int'), T('الدخل (ج)', 'int'), T('العجز (ج)', 'int'), T('نسبة العجز %', 'int'), T('المستحق (ج)', 'int'), T('المعتمد', 'money'), T('نقاط الأولوية', 'int'), T('موعد المراجعة')];
+    const rows = [];
+    for (const f of [...S.families.values()].sort((a, b) => collator.compare(a.name, b.name))) {
+      const a = currentAssessment(S, f.id);
+      if (a) rows.push([f.name, a.date, a.result.categoryLabel, a.result.N, a.result.I, a.result.G, Math.round(a.result.gPct), a.result.monthly.amount, a.committee?.monthly ?? null, a.result.points.priority, a.result.reviewBy]);
+    }
+    sheets.push({ title: 'تقييم الاحتياج', cols, rows });
   }
   return sheets;
 }

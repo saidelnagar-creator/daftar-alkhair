@@ -2,7 +2,7 @@
 import { h, clear } from './dom.js';
 import { ctx, F } from './ctx.js';
 import { openSheet, field, moneyInput, intInput, dateInput, selectInput, textInput, textArea, checkbox, errorBox, toast, monthOptions } from './components.js';
-import { ASSET_KINDS, CAMPAIGN_KINDS, FAMILY_PREFERENCES, FAMILY_STATUS, FUND_TYPES } from '../config/defaults.js';
+import { ASSET_KINDS, CAMPAIGN_KINDS, FAMILY_PREFERENCES, FAMILY_STATUS, FUND_TYPES, MONEY_TYPES } from '../config/defaults.js';
 import { closedThrough, profileAt, requiredAt } from '../core/engine.js';
 import { computePoints, suggestedMonthly } from '../core/families.js';
 import { addMonths, newId } from '../core/util.js';
@@ -34,7 +34,7 @@ function showError(err, e) {
 }
 
 // الشهور المسموح بدء السريان منها: من أول شهر مفتوح (بعد آخر إقفال) حتى سنتين قادمتين.
-function effectiveMonthSelect(value) {
+export function effectiveMonthSelect(value) {
   const closed = closedThrough(S());
   const now = ctx.nowMonth();
   let from = closed !== null ? `${closed + 1}-01` : addMonths(now, -36);
@@ -245,6 +245,11 @@ export function listItemForm(listName, item = null, defaults = {}) {
           kind = selectInput(CAMPAIGN_KINDS.map((k) => ({ value: k, label: k })), item?.kind || CAMPAIGN_KINDS[0]);
           extra.push(field('النوع', kind));
         }
+        let moneyType;
+        if (listName === 'purposes' || listName === 'funds') {
+          moneyType = selectInput(Object.entries(MONEY_TYPES).map(([value, label]) => ({ value, label })), item?.moneyType || '', { placeholder: listName === 'funds' ? 'مختلط / غير محدد' : 'غير محدد' });
+          extra.push(field('نوع المال', moneyType, 'لتنبيه شاشة الصرف إذا صُرفت زكاة لمن لا تحل له'));
+        }
         let func;
         if (listName === 'expenseTypes') {
           func = selectInput(Object.entries(EXPENSE_FUNCTIONS).map(([value, label]) => ({ value, label })), item?.function || (item?.id === 'x-admin' ? 'admin' : 'program'));
@@ -272,6 +277,7 @@ export function listItemForm(listName, item = null, defaults = {}) {
           if (unit) data.unit = unit.value.trim();
           if (fund) data.fundId = fund.value;
           if (func) data.function = func.value;
+          if (moneyType && (moneyType.value || item?.moneyType)) data.moneyType = moneyType.value || null;
           if (item) data.archived = archived.input.checked;
           try {
             await ctx.store.dispatch('list.upsert', { list: listName, item: data });

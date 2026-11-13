@@ -8,7 +8,8 @@ export const FUND_TYPES = Object.freeze({
   invest: 'استثمار',
   store: 'مخزن عيني',
   campaigns: 'حملات',
-  earmarked: 'أمانات مخصصة',
+  earmarked: 'أمانات (توصيل لجهة محددة)',
+  waqf: 'وقف',
   other: 'أخرى',
 });
 
@@ -21,17 +22,34 @@ export const DEFAULT_FUNDS = [
   { id: 'store', name: 'المخزن العيني', type: 'store', builtin: true },
   { id: 'campaigns', name: 'الحملات والمشروعات', type: 'campaigns', builtin: true },
   { id: 'earmarked', name: 'الأمانات المخصصة', type: 'earmarked', builtin: true },
+  { id: 'waqf', name: 'صندوق الوقف', type: 'waqf', builtin: true },
 ];
+
+// مجاميع الأرصدة: رصيد مجمَّع للعرض يضم صناديق تختارها (لا ينقل مالاً ولا يغيّر حساب أي صندوق).
+// الافتراضي «رصيد الأسر» = الصندوق العام + الأمانات. يُعدَّل من شاشة الصناديق.
+export const DEFAULT_ROLLUPS = Object.freeze([{ id: 'families', name: 'رصيد الأسر', funds: ['general', 'earmarked'] }]);
+
+// نوع المال لكل غرض تبرع (لتنبيهات الصرف: زكاة لا تُصرف لمن لا تحل له).
+export const MONEY_TYPES = Object.freeze({
+  zakat_mal: 'زكاة مال',
+  zakat_fitr: 'زكاة فطر',
+  kaffara: 'كفارة',
+  sadaqa: 'صدقة',
+  conditional: 'مشروط',
+  waqf: 'وقف',
+});
+// الأنواع التي تُعامل معاملة الزكاة في تنبيهات الصرف (زكاة الفطر والكفارات احتياطاً — انظر المواصفة قسم 12).
+export const ZAKAT_LIKE = Object.freeze(['zakat_mal', 'zakat_fitr', 'kaffara']);
 
 export const CAMPAIGN_KINDS = ['وجبات رمضان', 'أضاحي', 'مواسم المدارس', 'مسابقة قرآن', 'حالة خاصة', 'أخرى'];
 
 export const DEFAULT_PURPOSES = [
   { id: 'p-general', name: 'تبرع عام' },
   { id: 'p-subscription', name: 'اشتراك شهري' },
-  { id: 'p-zakat-mal', name: 'زكاة مال' },
-  { id: 'p-zakat-fitr', name: 'زكاة الفطر' },
-  { id: 'p-sadaqa', name: 'صدقة' },
-  { id: 'p-kaffara', name: 'كفارة' },
+  { id: 'p-zakat-mal', name: 'زكاة مال', moneyType: 'zakat_mal' },
+  { id: 'p-zakat-fitr', name: 'زكاة الفطر', moneyType: 'zakat_fitr' },
+  { id: 'p-sadaqa', name: 'صدقة', moneyType: 'sadaqa' },
+  { id: 'p-kaffara', name: 'كفارة', moneyType: 'kaffara' },
   { id: 'p-living', name: 'مساعدة معيشة' },
   { id: 'p-food', name: 'إطعام' },
   { id: 'p-medical', name: 'مساعدة مرض' },
@@ -68,8 +86,12 @@ export const ASSET_KINDS = Object.freeze({
   currency: 'عملة',
   property: 'ممتلكات',
   investment: 'استثمار',
+  livestock: 'مواشٍ',
+  land: 'أرض / عقار',
   other: 'أخرى',
 });
+
+export const UDHIYA_KINDS = ['عجل', 'بقرة', 'جاموس', 'جمل', 'خروف', 'ماعز'];
 
 export const FAMILY_STATUS = Object.freeze({
   permanent: 'مساعدة دائمة (شهرية)',

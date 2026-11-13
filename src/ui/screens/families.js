@@ -8,6 +8,10 @@ import { computePoints, entitlementAt, familyDues, familyIndex, familySummary } 
 import { FAMILY_STATUS } from '../../config/defaults.js';
 import { distributionForm } from '../forms-movements.js';
 import { familyForm, familyProfileForm, dueDecisionForm } from '../forms-entities.js';
+import { familyInkindSection } from './inkind.js';
+import { familyNeedSection } from './need.js';
+import { computeLedger, acctBalance } from '../../core/ledger.js';
+import { amanaDeliverForm, amanaRedirectForm } from '../forms-movements.js';
 
 const currentProfile = (S, f, month) => profileAt(S, f.id, month) || f.profiles[0] || null;
 const STATUS_BADGE = { permanent: ['دائمة', 'ok'], occasional: ['عند الحاجة', 'info'], paused: ['موقوفة', ''] };
@@ -136,6 +140,20 @@ export function familyScreen({ id }) {
       h('button', { class: 'btn', text: 'تعديل البيانات', onclick: () => familyForm(f) }),
     ),
   );
+  // أمانة باسم الأسرة: تسليم مباشر بنقرة
+  const amanaAcct = `earmarked#family:${id}`;
+  const amana = acctBalance(computeLedger(S), amanaAcct);
+  if (amana > 0) {
+    body.append(
+      h(
+        'div',
+        { class: 'banner info' },
+        h('span', { class: 'grow', text: `أمانة باسم هذه الأسرة تنتظر التسليم: ${F.egp(amana)}` }),
+        h('button', { class: 'btn small', text: 'تسليم', onclick: () => amanaDeliverForm(amanaAcct) }),
+        h('button', { class: 'btn small', text: 'تحويل', onclick: () => amanaRedirectForm(amanaAcct) }),
+      ),
+    );
+  }
   const tap = (m) => {
     if (['due', 'partial', 'writeoff'].includes(m.status)) dueDecisionForm({ entity: 'family', entityId: id, month: m.month, current: m.status });
   };
@@ -158,6 +176,8 @@ export function familyScreen({ id }) {
       monthLegend('family'),
     ),
   );
+  body.append(familyNeedSection(id));
+  body.append(familyInkindSection(id));
   if (f.profiles.length) {
     body.append(sectionTitle('تاريخ ملف الأسرة'));
     body.append(

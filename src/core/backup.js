@@ -9,8 +9,9 @@ export function checksumOf(schemaVersion, events) {
   return sha256(stableStringify({ schemaVersion, events }));
 }
 
-export function exportDoc(sourceEvents, { now = new Date(), deviceId = null, note = '' } = {}) {
-  const events = sourceEvents.slice(); // لقطة ثابتة: لا تتأثر بما يُضاف للدفتر بعد التصدير
+// redact: دالة اختيارية تُسقط أحداثاً من النسخة (مثل redactNeedEvents لنسخة بلا تفاصيل التقييم).
+export function exportDoc(sourceEvents, { now = new Date(), deviceId = null, note = '', redact = null } = {}) {
+  const events = redact ? redact(sourceEvents.slice()) : sourceEvents.slice(); // لقطة ثابتة: لا تتأثر بما يُضاف للدفتر بعد التصدير
   const state = buildState(events);
   return {
     app: APP_ID,
@@ -20,6 +21,7 @@ export function exportDoc(sourceEvents, { now = new Date(), deviceId = null, not
     exportedAt: typeof now === 'string' ? now : now.toISOString(),
     deviceId,
     note,
+    ...(redact ? { redacted: true } : {}),
     counts: countsOf(state, events),
     events,
     checksum: checksumOf(SCHEMA_VERSION, events),

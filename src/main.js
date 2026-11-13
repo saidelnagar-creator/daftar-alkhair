@@ -6,6 +6,7 @@ import { confirmDialog, toast } from './ui/components.js';
 import { readCanary, readMirror, startMirror, writeCanary } from './storage/mirror.js';
 import { parseBackup } from './core/backup.js';
 import { seedEvents } from './core/book.js';
+import { driveHandleReturn, startDriveSync } from './storage/drive-sync.js';
 
 const bootMsg = (text, isError = false) => {
   const el = document.getElementById('boot-msg');
@@ -35,7 +36,16 @@ async function boot() {
   if (store.isFresh) await offerRecovery(store);
   writeCanary(store);
   if (store.events.length > seedEvents().length) mirror.touch(); // مرآة أولى لدفتر موجود قبل هذه الميزة
+  // عودة من تفويض Google Drive؟ يُحفظ الرمز ويُعاد المسار قبل تشغيل الواجهة
+  let driveReturned = false;
+  try {
+    driveReturned = await driveHandleReturn(store);
+  } catch (e) {
+    console.warn('drive return failed', e);
+  }
   startApp(store);
+  startDriveSync(store);
+  if (driveReturned && store.meta.drive?.token) toast('تم الاتصال بـ Google Drive — النسخ التلقائي يعمل');
   window.__daftar = { version: APP_VERSION, store, mirror }; // للتشخيص والاختبارات الآلية
   if (store.migrationInfo) toast(`تمت ترقية هيكل البيانات إلى الإصدار ${store.migrationInfo.to} (نسخة تلقائية محفوظة)`);
   registerSW();

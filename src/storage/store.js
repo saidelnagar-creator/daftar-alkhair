@@ -166,8 +166,8 @@ export class Store {
   }
 
   // ----- التصدير والاستيراد -----
-  exportDoc(note = '') {
-    return exportDoc(this.book.events, { now: this.now(), deviceId: this.meta.deviceId, note });
+  exportDoc(note = '', { redact = null } = {}) {
+    return exportDoc(this.book.events, { now: this.now(), deviceId: this.meta.deviceId, note, redact });
   }
 
   async markBackedUp() {

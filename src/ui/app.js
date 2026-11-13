@@ -12,6 +12,12 @@ import { moreScreen, arrearsScreen, inventoryScreen, itemScreen, assetsScreen, a
 import { reportsScreen } from './screens/reports.js';
 import { settingsScreen, backupScreen, closingScreen, archiveScreen, pinMatches, makePinRecord } from './screens/settings.js';
 import { helpScreen } from './screens/help.js';
+import { batchScreen, purchasePlanScreen } from './screens/inkind.js';
+import { assessScreen, assessmentScreen, reviewsScreen, allocationScreen, needConfigScreen } from './screens/need.js';
+import { udhiyaListScreen, udhiyaScreen } from './screens/udhiya.js';
+import { printScreen } from './screens/reports.js';
+import { PRIVACY_GROUPS, anyHidden, isCustomizing, isHidden, privacyState, setAllPrivacy, setCustomizing, toggleAllPrivacy, toggleGroupPrivacy } from './privacy.js';
+import { chips } from './components.js';
 
 const ROUTES = [
   [/^\/?$/, homeScreen, 'home'],
@@ -38,7 +44,57 @@ const ROUTES = [
   [/^\/archive\/(\d+)$/, (m) => archiveScreen({ year: m[1] }), 'more'],
   [/^\/audit$/, auditScreen, 'more'],
   [/^\/help$/, helpScreen, 'more'],
+  [/^\/batch$/, batchScreen, 'families'],
+  [/^\/purchase-plan$/, purchasePlanScreen, 'more', 'assets'],
+  [/^\/assess\/([^/]+)$/, (m) => assessScreen({ familyId: m[1] }), 'families'],
+  [/^\/assess\/([^/]+)\/([^/]+)$/, (m) => assessScreen({ familyId: m[1], assessmentId: m[2] }), 'families'],
+  [/^\/assessment\/([^/]+)$/, (m) => assessmentScreen({ id: m[1] }), 'families'],
+  [/^\/reviews$/, reviewsScreen, 'families'],
+  [/^\/allocation$/, allocationScreen, 'families'],
+  [/^\/need-config$/, needConfigScreen, 'more'],
+  [/^\/udhiya$/, udhiyaListScreen, 'more'],
+  [/^\/udhiya\/([^/]+)$/, (m) => udhiyaScreen({ id: m[1] }), 'more'],
+  [/^\/print$/, printScreen, 'more', 'reports'],
 ];
+
+// مجموعة الخصوصية لكل شاشة (العمود الرابع في ROUTES يغلب، ثم المسار، ثم التبويب).
+const PATH_GROUP = [
+  [/^\/(assets|asset|inventory|item)/, 'assets'],
+  [/^\/(ledger|movement|audit)/, 'movements'],
+  [/^\/reports/, 'reports'],
+  [/^\/arrears/, 'subscribers'],
+];
+const TAB_GROUP = { home: 'home', subscribers: 'subscribers', families: 'families', funds: 'funds', more: 'other' };
+function groupOf(path, tab, explicit) {
+  if (explicit) return explicit;
+  for (const [re, g] of PATH_GROUP) if (re.test(path)) return g;
+  return TAB_GROUP[tab] || 'other';
+}
+
+// شريط تخصيص الإخفاء: مجموعة مجموعة، والبنود المفردة بزر العين بجانب كل رقم.
+function privacyBar() {
+  const p = privacyState();
+  const groups = h('div', { class: 'chips' });
+  for (const [g, label] of Object.entries(PRIVACY_GROUPS)) {
+    if (g === 'other') continue;
+    const hidden = isHidden(g);
+    groups.append(h('button', { class: `chip ${hidden ? '' : 'on'}`, text: `${hidden ? '🙈' : '👁'} ${label}`, 'aria-pressed': hidden ? 'false' : 'true', onclick: () => toggleGroupPrivacy(g) }));
+  }
+  return h(
+    'div',
+    { class: 'privacy-bar no-print' },
+    h('div', { class: 'muted small', text: 'اختر ما يظهر: اضغط مجموعة لإخفائها أو إظهارها كلها، أو زر العين بجانب أي رقم لبند واحد. الإعداد محفوظ على هذا الجهاز.' }),
+    groups,
+    h(
+      'div',
+      { class: 'btn-row', style: { marginTop: '8px' } },
+      h('button', { class: 'btn small', text: 'إخفاء الكل', onclick: () => setAllPrivacy('hide') }),
+      h('button', { class: 'btn small', text: 'إظهار الكل', onclick: () => setAllPrivacy('show') }),
+      h('button', { class: 'btn small primary', text: 'تم', onclick: () => setCustomizing(false) }),
+    ),
+    h('div', { class: 'muted small', style: { marginTop: '6px' }, text: p.all === 'hide' ? 'الوضع العام: مخفي' : 'الوضع العام: ظاهر' }),
+  );
+}
 
 const TABS = [
   ['#/', 'home', 'الرئيسية', 'home'],
@@ -61,13 +117,14 @@ function render() {
   const samePage = path === lastPath;
   const scroll = samePage ? window.scrollY : 0;
   let match = null;
-  for (const [re, fn, tab] of ROUTES) {
+  for (const [re, fn, tab, group] of ROUTES) {
     const m = path.match(re);
     if (m) {
-      match = { fn: () => fn(m), tab };
+      match = { fn: () => fn(m), tab, group };
       break;
     }
   }
+  ctx.pgroup = match ? groupOf(path, match.tab, match.group) : 'other';
   let screen;
   try {
     screen = match ? match.fn() : { title: 'غير موجود', body: h('div', { class: 'empty', text: 'الصفحة غير موجودة' }) };
@@ -80,8 +137,11 @@ function render() {
     { class: 'topbar' },
     screen.root ? null : h('button', { class: 'icon-btn', 'aria-label': 'رجوع', onclick: () => ctx.back(), style: { transform: 'scaleX(1)' } }, icon('back')),
     h('h1', {}, screen.title, screen.subtitle ? h('div', { class: 'sub', text: screen.subtitle }) : null),
+    // ضغطة واحدة: إخفاء كل الأرصدة / إظهار الكل
+    h('button', { class: `icon-btn ${anyHidden() ? 'on' : ''}`, id: 'privacy-toggle', 'aria-label': privacyState().all === 'hide' ? 'إظهار كل الأرصدة' : 'إخفاء كل الأرصدة', 'aria-pressed': privacyState().all === 'hide' ? 'true' : 'false', onclick: () => toggleAllPrivacy() }, icon(privacyState().all === 'hide' ? 'eyeOff' : 'eye')),
+    h('button', { class: `icon-btn ${isCustomizing() ? 'on' : ''}`, id: 'privacy-customize', 'aria-label': 'تخصيص الإخفاء', onclick: () => setCustomizing(!isCustomizing()) }, icon('tune')),
   );
-  const main = h('main', { class: 'screen', id: 'screen' }, updateBanner, screen.body);
+  const main = h('main', { class: 'screen', id: 'screen' }, updateBanner, isCustomizing() ? privacyBar() : null, screen.body);
   const tabs = h(
     'nav',
     { class: 'tabbar', 'aria-label': 'التنقل الرئيسي' },

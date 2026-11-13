@@ -1,5 +1,5 @@
 // التحقق قبل إضافة أي حدث للسجل. يرمي ValidationError برسالة عربية واضحة.
-import { ASSET_KINDS, FAMILY_STATUS, FUND_TYPES, MOVEMENT_KINDS } from '../config/defaults.js';
+import { ASSET_KINDS, FAMILY_STATUS, FUND_TYPES, MONEY_TYPES, MOVEMENT_KINDS } from '../config/defaults.js';
 import { RULES } from '../config/rules.js';
 import { LISTS, acctFund, acctSub, activeClosing, closedThrough, currentFiscalYear, firstFiscalYear, isLockedDate, isLockedMonth, precisionAt, stepsAt } from './engine.js';
 import { isMultiple } from './money.js';
@@ -112,6 +112,7 @@ export function validateMovement(state, mv) {
         check(isPos(it.qty), 'الكمية يجب أن تكون أكبر من صفر');
         check(it.value === undefined || isNonNeg(it.value), 'القيمة التقديرية غير صالحة');
       }
+      if (mv.udhiyaId !== undefined) check(state.udhiya.has(mv.udhiyaId), 'الذبيحة غير موجودة');
       break;
     }
     case 'distribution': {
@@ -140,6 +141,18 @@ export function validateMovement(state, mv) {
         check(isMonth(m), 'شهر غير صالح');
         check(!!mv.familyId, 'شهور الاستحقاق العيني تحتاج أسرة');
       }
+      // بنود الالتزام العيني التي يغطيها هذا الصرف: (شهر، صنف الالتزام، الكمية المغطاة بوحدة صنف الالتزام)
+      if (mv.inkindLines !== undefined) {
+        check(Array.isArray(mv.inkindLines), 'بنود الالتزام العيني غير صالحة');
+        for (const l of mv.inkindLines) {
+          check(!!mv.familyId, 'بنود الالتزام العيني تحتاج أسرة');
+          check(l && isMonth(l.month), 'بند الالتزام العيني يحتاج شهراً محدداً');
+          check(state.lists.items.has(l.itemId), 'صنف الالتزام غير موجود');
+          check(isPos(l.qty), 'كمية بند الالتزام يجب أن تكون أكبر من صفر');
+        }
+      }
+      if (mv.batchId !== undefined) check(nonEmpty(mv.batchId), 'معرف الدفعة المجمّعة غير صالح');
+      if (mv.udhiyaId !== undefined) check(state.udhiya.has(mv.udhiyaId), 'الذبيحة غير موجودة');
       if (items.length) checkStock(state, mv);
       break;
     }
@@ -225,7 +238,28 @@ const SETTING_CHECKS = {
     Array.isArray(v.flags) &&
     [...v.needLevels, ...v.flags].every((x) => nonEmpty(x.id) && nonEmpty(x.name) && isInt(x.points)),
   pointValue: (v) => Array.isArray(v) && v.length > 0 && v.every((x) => isMonth(x.from) && isNonNeg(x.value)),
+  rollups: (v) => Array.isArray(v) && v.every((x) => x && nonEmpty(x.id) && nonEmpty(x.name) && Array.isArray(x.funds) && x.funds.every(isStr)) && new Set(v.map((x) => x.id)).size === v.length,
 };
+
+const validNeedConfig = (c) =>
+  c &&
+  typeof c === 'object' &&
+  isPos(c.R) &&
+  isPos(c.pointsPerR) &&
+  isPos(c.gold21PricePerGram) &&
+  isPos(c.nisabGrams) &&
+  isPos(c.dailyWage) &&
+  isPos(c.imputedWorkDays) &&
+  c.items &&
+  Object.values(c.items).every((it) => it && isNonNeg(it.min) && isNonNeg(it.typ) && isNonNeg(it.max) && it.min <= it.typ && it.typ <= it.max) &&
+  c.thresholds &&
+  isNonNeg(c.thresholds.stopPct) &&
+  c.thresholds.stopPct <= c.thresholds.partialBelowPct &&
+  c.thresholds.partialBelowPct <= c.thresholds.severeFromPct &&
+  c.weights10 &&
+  isPos(c.weights10.base) &&
+  c.weights10.max >= c.weights10.base &&
+  ['ages', 'ration', 'incomeRates', 'imputed', 'student', 'assets', 'protection', 'empowerment', 'review', 'oneOff', 'gasLargeFamily'].every((k) => c[k] && typeof c[k] === 'object');
 
 export function validateEvent(state, ev) {
   check(ev && nonEmpty(ev.id) && nonEmpty(ev.type) && nonEmpty(ev.ts), 'حدث غير مكتمل');
@@ -235,6 +269,7 @@ export function validateEvent(state, ev) {
       check(d.key in SETTING_CHECKS, 'إعداد غير معروف');
       check(SETTING_CHECKS[d.key](d.value), 'قيمة الإعداد غير صالحة');
       if (d.key === 'firstFiscalYear') check(closedThrough(state) === null, 'لا يمكن تغيير بداية الدفاتر بعد إقفال سنة');
+      if (d.key === 'rollups') for (const r of d.value) for (const f of r.funds) check(state.lists.funds.has(f), `مجموع «${r.name}»: صندوق غير موجود`);
       if (d.key === 'pointValue') for (const x of d.value) if (!isLockedMonth(state, x.from)) moneyAt(state, x.from, x.value);
       if (d.key === 'precision' && closedThrough(state) !== null) {
         // لا يمس الماضي: ما يسري على السنوات المقفولة يبقى كما هو
@@ -255,6 +290,7 @@ export function validateEvent(state, ev) {
         check(state.lists.funds.has(merged.fundId), 'صندوق الأصل غير موجود');
       }
       if (d.list === 'items') check(nonEmpty(merged.unit), 'وحدة الصنف مطلوبة');
+      if (d.list === 'purposes' || d.list === 'funds') check(merged.moneyType === undefined || merged.moneyType === null || merged.moneyType === '' || merged.moneyType in MONEY_TYPES, 'نوع المال غير معروف');
       break;
     }
     case 'subscriber.upsert':
@@ -323,6 +359,87 @@ export function validateEvent(state, ev) {
     case 'year.reopen':
       check(closedThrough(state) === d.year, 'يمكن التراجع عن آخر سنة مقفولة فقط');
       break;
+    case 'family.inkind.set': {
+      check(state.families.has(d.familyId), 'الأسرة غير موجودة');
+      check(isMonth(d.from), 'شهر بداية السريان غير صالح');
+      check(!isLockedMonth(state, d.from), 'لا يمكن تغيير التزام عيني داخل سنة مقفولة — التغيير لا يمس الماضي');
+      check(Array.isArray(d.lines), 'بنود الالتزام العيني مطلوبة');
+      const seen = new Set();
+      const st = stepsAt(state, d.from).qty;
+      for (const l of d.lines) {
+        check(l && state.lists.items.has(l.itemId), 'الصنف غير موجود');
+        check(!seen.has(l.itemId), 'الصنف مكرر في الالتزام — اجمعه في بند واحد');
+        seen.add(l.itemId);
+        check(isPos(l.qty) && isMultiple(l.qty, st), 'كمية الالتزام يجب أن تكون أكبر من صفر وبالخانات المسموحة');
+        for (const a of l.alts || []) {
+          check(a && state.lists.items.has(a.itemId), 'الصنف البديل غير موجود');
+          check(a.itemId !== l.itemId, 'البديل لا يكون نفس الصنف');
+          check(isPos(a.qty) && isMultiple(a.qty, st), 'كمية البديل يجب أن تكون أكبر من صفر وبالخانات المسموحة');
+        }
+      }
+      break;
+    }
+    case 'need.config.set':
+      check(isMonth(d.from), 'شهر بداية سريان الإعداد غير صالح');
+      check(isPos(d.version), 'رقم نسخة الإعداد غير صالح');
+      check(!(state.needConfigs || []).some((c) => c.version === d.version && c.from !== d.from), 'رقم نسخة الإعداد مستخدم من قبل');
+      check(validNeedConfig(d.config), 'إعداد الحاسبة غير صالح (الأدنى ≤ المعتاد ≤ الأعلى، والعتبات مرتبة، والأرقام موجبة)');
+      break;
+    case 'need.assessment.save': {
+      check(nonEmpty(d.id), 'تقييم بدون معرف');
+      check(state.families.has(d.familyId), 'الأسرة غير موجودة');
+      check(d.status === 'draft' || d.status === 'approved', 'حالة التقييم غير معروفة');
+      check(isMonth(d.evalDate), 'شهر التقييم غير صالح');
+      check(isDate(d.date), 'تاريخ التقييم غير صالح');
+      check(d.input && typeof d.input === 'object' && Array.isArray(d.input.members), 'مدخلات التقييم غير مكتملة');
+      check(d.result && isInt(d.result.N) && isInt(d.result.I) && isInt(d.result.G) && d.result.G === d.result.N - d.result.I, 'نتيجة التقييم غير صالحة');
+      check(isNonNeg(d.configVersion) && nonEmpty(d.engineVersion), 'نسخة الإعداد والمحرك مطلوبة');
+      const old = state.assessments.get(d.id);
+      if (old) {
+        check(old.familyId === d.familyId, 'لا يمكن نقل تقييم إلى أسرة أخرى');
+        check(old.status !== 'approved', 'التقييم المعتمد لا يُعدَّل — أنشئ تقييماً جديداً');
+      }
+      const c = d.committee || {};
+      check(c.estimate === undefined || c.estimate === null || isNonNeg(c.estimate), 'تقدير اللجنة غير صالح');
+      check(c.monthly === undefined || c.monthly === null || isNonNeg(c.monthly), 'المبلغ المعتمد غير صالح');
+      if (d.status === 'approved') check(isMonth(d.appliedFrom), 'الاعتماد يحتاج شهر بداية السريان');
+      break;
+    }
+    case 'need.file.upsert': {
+      check(nonEmpty(d.id), 'ملف بدون معرف');
+      const old = state.needFiles.get(d.id);
+      const merged = { ...(old || {}), ...d };
+      check(merged.kind === 'debt' || merged.kind === 'oneoff', 'نوع الملف غير معروف');
+      check(state.families.has(merged.familyId), 'الأسرة غير موجودة');
+      check(!old || (old.kind === merged.kind && old.familyId === merged.familyId), 'لا يمكن تغيير نوع الملف أو أسرته');
+      check(merged.data && typeof merged.data === 'object', 'بيانات الملف مطلوبة');
+      check(['open', 'approved', 'paid', 'rejected', 'closed'].includes(merged.status), 'حالة الملف غير معروفة');
+      check(isDate(merged.date), 'تاريخ الملف غير صالح');
+      break;
+    }
+    case 'udhiya.upsert': {
+      check(nonEmpty(d.id), 'ذبيحة بدون معرف');
+      const u = { ...(state.udhiya.get(d.id) || {}), ...d };
+      check(nonEmpty(u.name), 'اسم الذبيحة مطلوب');
+      check(isDate(u.date), 'تاريخ الذبيحة غير صالح');
+      for (const k of ['price', 'liveWeight', 'meatWeight', 'poorQty']) check(u[k] === undefined || u[k] === null || isNonNeg(u[k]), 'رقم غير صالح في بيانات الذبيحة');
+      check((u.poorQty || 0) <= (u.meatWeight || 0) || !u.meatWeight, 'نصيب الفقراء أكبر من وزن اللحم الصافي');
+      check(u.totalParts === undefined || u.totalParts === null || isPos(u.totalParts), 'عدد الأسهم الكلي غير صالح');
+      for (const c of u.costs || []) check(c && nonEmpty(c.name) && isNonNeg(c.amount), 'بند تكلفة غير صالح');
+      let parts = 0;
+      const ids = new Set();
+      for (const sh of u.shares || []) {
+        check(sh && nonEmpty(sh.id) && nonEmpty(sh.name), 'مشترك في الذبيحة بلا اسم');
+        check(!ids.has(sh.id), 'مشترك مكرر في الذبيحة');
+        ids.add(sh.id);
+        check(isPos(sh.parts), 'عدد أسهم المشترك يجب أن يكون أكبر من صفر');
+        check(sh.paid === undefined || isNonNeg(sh.paid), 'المدفوع غير صالح');
+        parts += sh.parts;
+      }
+      if (u.totalParts) check(parts <= u.totalParts, 'مجموع أسهم المشتركين أكبر من عدد الأسهم الكلي');
+      if (u.itemId) check(state.lists.items.has(u.itemId), 'صنف اللحم غير موجود');
+      break;
+    }
     default:
       check(false, 'نوع حدث غير معروف');
   }

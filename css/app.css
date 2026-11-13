@@ -905,3 +905,278 @@ table.report tr.total td {
     grid-template-columns: repeat(6, 1fr);
   }
 }
+
+/* ---------- خصوصية العرض: إخفاء/إظهار الأرصدة ---------- */
+.masked {
+  color: var(--muted) !important;
+  letter-spacing: 2px;
+}
+.topbar .icon-btn.on {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+.eye-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-inline-start: 6px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--primary);
+  vertical-align: middle;
+  flex: none;
+}
+.eye-toggle.off {
+  color: var(--muted);
+}
+.stat .label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.stat.primary .eye-toggle {
+  background: rgba(255, 255, 255, 0.2);
+  color: inherit;
+}
+.privacy-bar {
+  background: var(--surface);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.privacy-bar .chips {
+  margin: 8px 0 0;
+}
+
+/* ---------- بطاقات وأدوات جديدة ---------- */
+.steps {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 12px;
+}
+.steps span {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+}
+.steps span.on {
+  background: var(--primary);
+}
+.member-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.member-card .head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 700;
+}
+.result-hero {
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 12px;
+  background: var(--surface);
+  border: 2px solid var(--line);
+}
+.result-hero.severe {
+  border-color: var(--bad);
+  background: var(--bad-soft);
+}
+.result-hero.needy {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+}
+.result-hero.partial {
+  border-color: var(--info);
+  background: var(--info-soft);
+}
+.result-hero.sufficient {
+  border-color: var(--ok);
+  background: var(--ok-soft);
+}
+.result-hero .cat {
+  font-size: 20px;
+  font-weight: 800;
+}
+.result-hero .big {
+  font-size: 28px;
+  font-weight: 800;
+}
+.tri {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 10px 0;
+}
+.tri > div {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px;
+  text-align: center;
+}
+.tri .k {
+  font-size: 12px;
+  color: var(--muted);
+}
+.tri .v {
+  font-size: 17px;
+  font-weight: 800;
+}
+.flag-list {
+  margin: 0;
+  padding-inline-start: 20px;
+}
+.flag-list li {
+  margin: 4px 0;
+}
+.bars {
+  margin: 8px 0;
+}
+.bars .bar {
+  display: grid;
+  grid-template-columns: 38% 1fr auto;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 13px;
+}
+.bars .track {
+  height: 12px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.bars .fill {
+  height: 100%;
+  border-radius: 6px;
+  background: var(--primary);
+}
+.pick-list .row {
+  min-height: 48px;
+}
+.pick-list input[type='checkbox'] {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  margin-inline-end: 10px;
+}
+.decision {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  width: 100%;
+  text-align: start;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+.decision:last-child {
+  border-bottom: 0;
+}
+.decision .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: 7px;
+  flex: none;
+  background: var(--info);
+}
+.decision.bad .dot {
+  background: var(--bad);
+}
+.decision.warn .dot {
+  background: var(--warn);
+}
+.decision.ok .dot {
+  background: var(--ok);
+}
+.brief h2 {
+  font-size: 18px;
+  margin: 18px 0 6px;
+}
+.brief .brief-head {
+  text-align: center;
+  margin-bottom: 8px;
+}
+.brief .brief-head .t {
+  font-size: 20px;
+  font-weight: 800;
+}
+.brief ul.notes {
+  padding-inline-start: 20px;
+  margin: 6px 0;
+}
+.num-cell {
+  width: 100%;
+  min-height: 44px;
+  font-size: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 8px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: center;
+}
+.cfg-row {
+  display: grid;
+  grid-template-columns: 1fr 72px 72px 72px;
+  gap: 6px;
+  align-items: center;
+  margin: 6px 0;
+  font-size: 14px;
+}
+.cfg-row.two {
+  grid-template-columns: 1fr 110px;
+}
+.cfg-row.head {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+.cfg-row.head span:first-child {
+  text-align: start;
+}
+
+/* ---------- الطباعة / حفظ PDF: التقرير وحده بلا أشرطة ---------- */
+@media print {
+  .topbar,
+  .tabbar,
+  .fab,
+  .no-print,
+  .toast,
+  .banner {
+    display: none !important;
+  }
+  body,
+  .screen {
+    background: #fff !important;
+    color: #000 !important;
+    padding: 0 !important;
+  }
+  .table-wrap {
+    overflow: visible !important;
+  }
+  table.report th,
+  table.report td {
+    white-space: normal;
+  }
+  .brief h2,
+  .card,
+  .bars {
+    break-inside: avoid;
+  }
+}

@@ -8,6 +8,7 @@ import { computeLedger, acctBalance, fundCash, assetPosition, itemPosition, cash
 import { suggestAllocation, suggestAmount, arrearsFor, firstMonthOf } from '../core/subscriptions.js';
 import { suggestFamilyAllocation, suggestFamilyAmount, familyDues, entitlementAt, familyMonthStatus } from '../core/families.js';
 import { addMonths, ymOf } from '../core/util.js';
+import { distributionWarnings } from '../core/need.js';
 import { ASSET, mulDiv, roundToStep } from '../core/money.js';
 
 const S = () => ctx.state;
@@ -28,15 +29,16 @@ export function acctOptions({ withBalance = true, earmarks = true } = {}) {
   if (camps.length) out.push({ group: 'الحملات والمشروعات', options: camps });
   if (earmarks) {
     const em = [...led.cash].filter(([a, v]) => a.startsWith('earmarked#') && v !== 0).map(([a, v]) => ({ value: a, label: lab(acctLabel(S(), a), v) }));
-    if (em.length) out.push({ group: 'أمانات مخصصة', options: em });
+    if (em.length) out.push({ group: 'الأمانات (توصيل لجهة محددة)', options: em });
   }
   return out;
 }
 
 // خيارات جهة التخصيص لبند «مخصص».
-function targetOptions() {
+function targetOptions({ exclude = null } = {}) {
   const enc = (type, id) => `${type}|${id}`;
   const out = [];
+  void exclude;
   const cats = active(S().lists.familyCategories).map((c) => ({ value: enc('category', c.id), label: `فئة: ${c.name}` }));
   if (cats.length) out.push({ group: 'لفئة', options: cats });
   const camps = active(S().lists.campaigns).map((c) => ({ value: enc('campaign', c.id), label: `حملة: ${c.name}` }));
@@ -428,10 +430,34 @@ export function distributionForm({ familyId = null, initial = null } = {}) {
         };
         const info = h('div', { class: 'muted small', style: { marginBottom: '8px' } });
         const quick = h('div', { class: 'chips' });
+        const amanaInfo = h('div', { class: 'banner info', style: { display: 'none' } });
+        const warnBox = h('div', {});
+        // تنبيهات لا تمنع الحفظ: زكاة لمن لا تحل له، أو تجاوز العجز المعتمد في آخر تقييم
+        const currentMv = () => ({ kind: 'distribution', date: date.value, familyId: family.value || null, acct: acct.value, amount: amount.units() || 0, replaces: init?.id, lines: editor.get().filter((l) => l.amount > 0).map((l) => ({ kind: l.ui === 'month' ? 'entitlement' : 'extra', amount: l.amount, purposeId: l.purposeId })) });
+        const drawWarnings = () => {
+          clear(warnBox);
+          for (const w of distributionWarnings(S(), currentMv())) warnBox.append(h('div', { class: 'banner', role: 'alert', text: w.cap !== undefined ? `${w.text} (مصروف الشهر ${F.egp(w.spent)} — العجز المعتمد ${F.egp(w.cap)})` : w.text }));
+        };
+        // أمانة باسم الأسرة: تظهر كمصدر الصرف تلقائياً
+        const onAmana = () => {
+          amanaInfo.style.display = 'none';
+          if (!family.value || init) return;
+          const a = `earmarked#family:${family.value}`;
+          const bal = acctBalance(computeLedger(S()), a);
+          if (bal <= 0) {
+            if (acct.value.startsWith('earmarked#family:')) acct.value = 'general';
+            return;
+          }
+          if (![...acct.options].some((o) => o.value === a)) return;
+          acct.value = a;
+          amanaInfo.textContent = `لهذه الأسرة أمانة باسمها ${F.egp(bal)} — الصرف يُخصم منها (غيّر «يُصرف من» إن أردت مصدراً آخر).`;
+          amanaInfo.style.display = '';
+        };
         const onFamily = () => {
           benField.style.display = family.value ? 'none' : '';
           clear(info);
           clear(quick);
+          onAmana();
           if (family.value) {
             const month = ymOf(date.value);
             const ent = entitlementAt(S(), family.value, month);
@@ -501,11 +527,15 @@ export function distributionForm({ familyId = null, initial = null } = {}) {
         });
         amount.addEventListener('input', () => (manual ? drawSummary(editor.get()) : resuggest()));
         date.addEventListener('change', () => (manual ? null : resuggest()));
+        body.addEventListener('input', drawWarnings);
+        body.addEventListener('change', drawWarnings);
 
         const save = async () => {
           err.show('');
           const amt = amount.units() ?? 0;
           if (amt < 0) return err.show('المبلغ غير صالح');
+          const warns = distributionWarnings(S(), currentMv());
+          if (warns.length && !(await confirmDialog({ title: 'تنبيه قبل الصرف', message: warns.map((w) => '• ' + w.text).join('\n'), okText: 'صرف مع ذلك', cancelText: 'رجوع', danger: true }))) return;
           const ui = amt > 0 ? editor.get() : [];
           if (ui.some((l) => !l.amount || l.amount <= 0)) return err.show(`كل بند يحتاج مبلغاً أكبر من صفر (${RULE.money()})`);
           if (items.some((it) => !it.qty || it.qty <= 0)) return err.show(RULE.qty());
@@ -526,7 +556,7 @@ export function distributionForm({ familyId = null, initial = null } = {}) {
           await saveMovement(mv, { initial: init, err, close });
         };
 
-        body.append(err, field('الأسرة', family), benField, info, quick, field('المبلغ النقدي (جنيه)', amount, 'اتركه فارغاً للتوزيع العيني فقط'));
+        body.append(err, field('الأسرة', family), benField, info, amanaInfo, quick, field('المبلغ النقدي (جنيه)', amount, 'اتركه فارغاً للتوزيع العيني فقط'), warnBox);
         body.append(h('div', { class: 'label muted small', text: 'أي شهور استحقاق يسددها هذا الصرف وبكم' }), editor, summary);
         body.append(h('div', { class: 'grid2' }, field('التاريخ', date), field('يُصرف من', acct)));
         body.append(h('div', { class: 'section-title' }, h('span', { text: 'أصناف عينية من المخزن' })), itemsBox, inkindField, field('ملاحظة', note), saveBtn(init ? 'حفظ التعديل' : 'حفظ الصرف', save));
@@ -536,6 +566,7 @@ export function distributionForm({ familyId = null, initial = null } = {}) {
           benField.style.display = family.value ? 'none' : '';
         } else onFamily();
         drawItems();
+        drawWarnings();
       },
       { onClose: (result) => resolve(!!result) },
     );
@@ -610,15 +641,16 @@ function itemLinesEditor(initialLines, { withCost, costLabel }) {
   return box;
 }
 
-export function purchaseForm({ initial = null } = {}) {
-  openSheet(initial ? 'تعديل شراء' : 'شراء أصناف', (body, close) => {
+// preset.lines: [{itemId, qty}] كميات مقترحة من خطة الشراء — يبقى إدخال الأسعار فقط.
+export function purchaseForm({ initial = null, preset = null } = {}) {
+  openSheet(initial ? 'تعديل شراء' : preset ? 'شراء حسب الخطة — أدخل الأسعار' : 'شراء أصناف', (body, close) => {
     const err = errorBox();
     if (!itemOptions().length) return body.append(h('div', { class: 'empty', text: 'أضف صنفاً أولاً من: المزيد ← القوائم ← الأصناف' }));
     const date = dateInput(initial?.date);
     const acct = selectInput(acctOptions(), initial?.acct || 'general');
     const direct = checkbox('وُزّع مباشرة (لا يدخل المخزن)', !!initial?.direct);
-    const editor = itemLinesEditor(initial?.lines || [], { withCost: true, costLabel: 'إجمالي التكلفة' });
-    const note = noteField(initial?.note);
+    const editor = itemLinesEditor(initial?.lines || preset?.lines?.map((l) => ({ itemId: l.itemId, qty: l.qty, cost: null })) || [], { withCost: true, costLabel: 'إجمالي التكلفة' });
+    const note = noteField(initial?.note ?? preset?.note);
     const save = () => {
       const lines = editor.get();
       if (!lines.length) return err.show('أضف صنفاً واحداً على الأقل');
@@ -866,6 +898,62 @@ export function cashCountForm(acct) {
       return saveMovement({ kind: 'adjustment', date: date.value, target: 'cash', acct, amount: diff, reason: `جرد ومطابقة: الفعلي ${F.money(a)} والدفتري ${F.money(bookBal)}` }, { err, close, skipOverdraft: true, message: 'سُجّلت تسوية الجرد' });
     };
     body.append(err, h('p', { class: 'muted', text: `عدّ النقد الموجود فعلاً في «${acctLabel(S(), acct)}» واكتبه. إن اختلف عن الدفتر تُسجَّل تسوية بالفرق وتظهر في التقارير.` }), field('الرصيد الفعلي بعد العدّ (جنيه)', actual), diffBox, field('تاريخ الجرد', date), saveBtn('اعتماد الجرد', save));
+  });
+}
+
+// ====================== الأمانات: تسليم لصاحبتها أو تغيير التخصيص ======================
+const amanaFamilyId = (acct) => (acct.startsWith('earmarked#family:') ? acct.split(':')[1] : null);
+
+// تسليم أمانة أسرة: كلها أو جزء منها، والباقي يبقى منتظراً في حسابه.
+export function amanaDeliverForm(acct) {
+  const familyId = amanaFamilyId(acct);
+  const fam = S().families.get(familyId);
+  if (!fam) return toast('هذه الأمانة ليست باسم أسرة', 'bad');
+  const bal = acctBalance(computeLedger(S()), acct);
+  openSheet(`تسليم أمانة: ${fam.name}`, (body, close) => {
+    const err = errorBox();
+    const amount = moneyInput(bal > 0 ? bal : null);
+    const date = dateInput();
+    const asEnt = checkbox('يُحسب من استحقاقها الشهري (الأقدم أولاً)', false);
+    const note = noteField('');
+    const left = h('div', { class: 'preview' });
+    const draw = () => {
+      clear(left);
+      const a = amount.units() || 0;
+      left.append(h('div', { class: 'pl' }, h('span', { text: 'رصيد الأمانة' }), h('span', { class: 'num', text: F.money(bal) })));
+      left.append(h('div', { class: 'pl' }, h('span', { text: 'يبقى منتظراً بعد التسليم' }), h('span', { class: `num ${bal - a < 0 ? 'neg' : ''}`, text: F.money(bal - a) })));
+    };
+    amount.addEventListener('input', draw);
+    draw();
+    const save = () => {
+      const amt = amount.units();
+      if (!amt || amt <= 0) return err.show(RULE.money());
+      if (amt > bal) return err.show('المبلغ أكبر من رصيد الأمانة');
+      const lines = asEnt.input.checked ? suggestFamilyAllocation(S(), familyId, amt, date.value) : [{ kind: 'extra', amount: amt }];
+      return saveMovement(strip({ kind: 'distribution', date: date.value, familyId, acct, amount: amt, lines, note: note.value.trim() || 'تسليم أمانة مخصصة للأسرة' }), { err, close, skipOverdraft: true, message: 'تم تسليم الأمانة' });
+    };
+    body.append(err, field('المبلغ المسلَّم (جنيه)', amount, 'الافتراضي كل الرصيد — اكتب جزءاً منه والباقي ينتظر'), left, asEnt, field('التاريخ', date), field('ملاحظة', note), saveBtn('تسليم للأسرة', save));
+  });
+}
+
+// تغيير تخصيص أمانة: إلى الصندوق العام أو لأسرة/فئة/حملة/صندوق آخر (كلها أو جزء منها).
+export function amanaRedirectForm(acct) {
+  const bal = acctBalance(computeLedger(S()), acct);
+  openSheet('تغيير تخصيص الأمانة', (body, close) => {
+    const err = errorBox();
+    const amount = moneyInput(bal > 0 ? bal : null);
+    const target = selectInput([{ value: 'fund|general', label: 'عام: الصندوق العام' }, ...targetOptions()], 'fund|general');
+    const date = dateInput();
+    const reason = textInput('', 'سبب التغيير (مثلاً: بإذن المتبرع)');
+    const save = () => {
+      const amt = amount.units();
+      if (!amt || amt <= 0) return err.show(RULE.money());
+      if (amt > bal) return err.show('المبلغ أكبر من رصيد الأمانة');
+      const to = targetAcct(decTarget(target.value));
+      if (to === acct) return err.show('اختر جهة مختلفة');
+      return saveMovement(strip({ kind: 'transfer', date: date.value, from: acct, to, amount: amt, note: `تغيير تخصيص${reason.value.trim() ? ': ' + reason.value.trim() : ''}` }), { err, close, skipOverdraft: true, message: 'تم تغيير التخصيص' });
+    };
+    body.append(err, h('p', { class: 'muted', text: `من «${acctLabel(S(), acct)}» — الرصيد ${F.egp(bal)}. ما لا تحوّله يبقى منتظراً كما هو.` }), field('المبلغ (جنيه)', amount), field('يتحول إلى', target), field('التاريخ', date), field('السبب', reason), saveBtn('تغيير التخصيص', save));
   });
 }
 

@@ -23,6 +23,9 @@ export function movementRow(mv, { showBalance = null } = {}) {
     badge: mv.voided ? badge('ملغاة', 'bad') : null,
     end: showBalance !== null ? h('div', { class: 'subtitle num', text: `الرصيد ${F.money(showBalance)}` }) : null,
     onclick: () => ctx.nav(`#/movement/${mv.id}`),
+    pg: 'movements',
+    pk: 'movements|rows', // الحركات تُخفى وتُظهر كمجموعة واحدة
+    maskSub: false,
   });
 }
 

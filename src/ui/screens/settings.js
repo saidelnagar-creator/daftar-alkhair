@@ -9,6 +9,8 @@ import { SCHEMA_VERSION } from '../../core/migrations/index.js';
 import { parseBackup, planImport } from '../../core/backup.js';
 import { canEncrypt, decryptBackup, encryptBackup, isEncryptedBackup } from '../../core/crypto-backup.js';
 import { readMirror } from '../../storage/mirror.js';
+import { driveConfig, driveConnect, driveDisconnect, driveFetchBackup, driveRedirectUri, driveStatus, driveSyncNow } from '../../storage/drive-sync.js';
+import { redactNeedEvents } from '../../core/need.js';
 import { closedThrough, firstFiscalYear, pointValueAt, acctLabel, activeClosing } from '../../core/engine.js';
 import { previewClose, closeYear, reopenYear, verifyCheckpoint, closedYears, yearFlows } from '../../core/closing.js';
 import { sha256 } from '../../core/sha256.js';
@@ -299,14 +301,19 @@ async function removePin() {
 
 // ---------- النسخ الاحتياطي ----------
 // تصدير مباشر (يُستدعى أيضاً من شريط التذكير في الرئيسية).
-export async function exportBackupNow({ password = null } = {}) {
+// redacted: نسخة بلا تفاصيل التقييم (لا مدخلات الحاسبة ولا ملفات الديون) — للمشاركة، ولا تُحسب نسخة كاملة.
+export async function exportBackupNow({ password = null, redacted = false } = {}) {
   const store = ctx.store;
   try {
-    const doc = store.exportDoc();
+    const doc = store.exportDoc('', redacted ? { redact: redactNeedEvents } : {});
     const payload = password ? await encryptBackup(doc, password) : doc;
-    const name = `daftar-alkhair-backup-${ctx.today()}${password ? '-protected' : ''}.json`;
+    const name = `daftar-alkhair-backup-${ctx.today()}${redacted ? '-no-assessments' : ''}${password ? '-protected' : ''}.json`;
     const res = await saveFile(name, JSON.stringify(payload), 'application/json');
     if (res === 'cancelled') return false;
+    if (redacted) {
+      toast('تم تجهيز نسخة بلا تفاصيل التقييم');
+      return true;
+    }
     await store.markBackedUp();
     toast(password ? 'تم تجهيز النسخة المحمية بكلمة سر' : 'تم تجهيز النسخة الاحتياطية');
     return true;
@@ -383,6 +390,8 @@ export function backupScreen() {
       h('div', { style: { height: '10px' } }),
     );
   }
+  body.append(h('button', { class: 'btn block', text: 'نسخة بلا تفاصيل التقييم (للمشاركة)', onclick: () => exportBackupNow({ redacted: true }) }), h('p', { class: 'muted small', text: 'تُسقط مدخلات ونتائج حاسبة الاحتياج وملفات الديون (بيانات صحة وسلوك ودخل). تبقى الحسابات والمبالغ المعتمدة سليمة. ليست بديلاً عن النسخة الكاملة.' }));
+  body.append(driveSection());
   const file = h('input', { type: 'file', style: { display: 'none' }, id: 'import-file' });
   file.addEventListener('change', async () => {
     const f = file.files[0];
@@ -461,6 +470,102 @@ export function backupScreen() {
     );
   });
   return { title: 'النسخ الاحتياطي', body };
+}
+
+// ---------- النسخ التلقائي على Google Drive ----------
+const DRIVE_STATE = { ok: ['يعمل — كل التغييرات مرفوعة', 'ok'], pending: ['يعمل — تغييرات في انتظار الرفع', 'info'], 'needs-auth': ['يحتاج تجديد الاتصال', 'warn'], error: ['خطأ في آخر محاولة', 'bad'], off: ['غير مفعّل', ''] };
+
+function driveSection() {
+  const store = ctx.store;
+  const c = driveConfig(store) || {};
+  const st = driveStatus(store);
+  const sb = DRIVE_STATE[st.state];
+  const out = h('div', {});
+  out.append(sectionTitle('نسخ احتياطي تلقائي مستمر على Google Drive'));
+  const card = h('div', { class: 'card' }, kv('الحالة', badge(sb[0], sb[1]), '', { secret: false }));
+  if (st.lastAt) card.append(kv('آخر رفع', F.dateTime(st.lastAt), '', { secret: false }));
+  if (st.pending) card.append(kv('تغييرات لم تُرفع', F.num(st.pending), '', { secret: false }));
+  if (st.error) card.append(kv('الخطأ', st.error, 'neg', { secret: false }));
+  if (c.lastError && st.state !== 'error') card.append(kv('ملاحظة', c.lastError, 'neg', { secret: false }));
+  out.append(card);
+  if (!c.clientId) {
+    out.append(h('p', { class: 'muted small', text: 'بعد كل تغيير تُرفع نسخة كاملة تلقائياً إلى ملف واحد في حسابك على Drive (يحتفظ Drive بإصداراته السابقة). التطبيق لا يرى في حسابك إلا هذا الملف. يحتاج إعداداً لمرة واحدة: «معرّف عميل» مجاني من Google Cloud — الخطوات في دليل الاستخدام.' }));
+  }
+  const btns = h('div', { class: 'btn-row' });
+  if (c.clientId && st.state === 'needs-auth') btns.append(h('button', { class: 'btn primary', text: c.auto ? 'تجديد الاتصال بـ Drive' : 'اتصال', onclick: () => driveConnect(store, { silent: !!c.lastAt }).catch((e) => toast(e.message, 'bad')) }));
+  if (c.clientId && c.auto && ['ok', 'pending', 'error'].includes(st.state)) {
+    btns.append(
+      h('button', {
+        class: 'btn primary',
+        text: 'رفع الآن',
+        onclick: async () => {
+          const r = await driveSyncNow(store, { force: true });
+          toast(r.ok ? 'تم الرفع إلى Drive' : r.reason === 'needs-auth' ? 'جدّد الاتصال أولاً' : r.error || 'تعذّر الرفع', r.ok ? '' : 'bad');
+          ctx.refresh();
+        },
+      }),
+      h('button', {
+        class: 'btn',
+        text: 'استرجاع من Drive',
+        onclick: async () => {
+          try {
+            const parsed = await readBackupText(await driveFetchBackup(store));
+            if (parsed) importPreview(parsed);
+          } catch (e) {
+            toast(e.message, 'bad');
+          }
+        },
+      }),
+    );
+  }
+  btns.append(h('button', { class: 'btn', text: c.clientId ? 'إعداد Drive' : 'تفعيل النسخ على Drive', onclick: () => driveSetupForm() }));
+  out.append(btns);
+  return out;
+}
+
+function driveSetupForm() {
+  const store = ctx.store;
+  const c = driveConfig(store) || {};
+  openSheet('إعداد النسخ على Google Drive', (body, close) => {
+    const err = errorBox();
+    const clientId = textInput(c.clientId || '', 'xxxxxxxx.apps.googleusercontent.com');
+    clientId.dir = 'ltr';
+    const password = h('input', { type: 'password', autocomplete: 'off', value: c.password || '', placeholder: 'اختياري' });
+    const redact = h('input', { type: 'checkbox', checked: !!c.redactNeed });
+    const uri = driveRedirectUri();
+    const saveCfg = async (connect) => {
+      const id = clientId.value.trim();
+      if (!/^[\w.-]+\.apps\.googleusercontent\.com$/.test(id)) return err.show('معرّف العميل يبدأ بأرقام وينتهي بـ .apps.googleusercontent.com');
+      if (password.value && password.value.length < 6) return err.show('كلمة السر 6 أحرف على الأقل');
+      await store.setMeta('drive', { ...c, clientId: id, auto: true, password: password.value || undefined, redactNeed: redact.checked || undefined, ...(id !== c.clientId ? { token: undefined, expiresAt: 0, fileId: undefined, lastEvents: 0 } : {}) });
+      close(true);
+      if (connect) driveConnect(store).catch((e) => toast(e.message, 'bad'));
+      else ctx.refresh();
+    };
+    body.append(
+      err,
+      h('ol', { class: 'flag-list' }, h('li', { text: 'افتح console.cloud.google.com بحسابك وأنشئ مشروعاً (مجاني).' }), h('li', { text: 'فعّل «Google Drive API» من APIs & Services ← Library.' }), h('li', { text: 'OAuth consent screen: النوع External، وأضف بريدك في Test users.' }), h('li', { text: 'Credentials ← Create credentials ← OAuth client ID ← Web application.' }), h('li', { text: 'في Authorized redirect URIs و Authorized JavaScript origins ضع رابط التطبيق التالي حرفياً:' })),
+      h('div', { class: 'card', dir: 'ltr', style: { wordBreak: 'break-all', userSelect: 'all' }, text: uri }),
+      field('معرّف العميل (Client ID)', clientId),
+      field('كلمة سر لتشفير النسخة المرفوعة', password, 'اختياري: يُشفَّر الملف قبل الرفع. تُحفظ الكلمة على هذا الجهاز؛ إن نُسيت لا تُفتح النسخة.'),
+      h('label', { class: 'check' }, redact, 'ارفع نسخة بلا تفاصيل التقييم (أخف خصوصيةً، لكنها ليست نسخة كاملة)'),
+      h('button', { class: 'btn primary block', type: 'button', text: 'حفظ والاتصال بحساب Google', onclick: () => saveCfg(true) }),
+      c.clientId ? h('button', { class: 'btn block', style: { marginTop: '8px' }, type: 'button', text: 'حفظ فقط', onclick: () => saveCfg(false) }) : null,
+      c.clientId
+        ? h('button', {
+            class: 'btn danger block',
+            style: { marginTop: '8px' },
+            type: 'button',
+            text: 'إيقاف النسخ على Drive',
+            onclick: async () => {
+              await driveDisconnect(store);
+              close(true);
+              toast('أُوقف النسخ على Drive (الملف المرفوع باقٍ في حسابك)');
+            },
+          })
+        : null,
+    );
+  });
 }
 
 function importPreview(parsed) {

@@ -3,6 +3,7 @@ import { h, icon, clear } from './dom.js';
 import { ctx, F } from './ctx.js';
 import { parseAssetQty, parseMoney, parseQty, MONEY, QTY, ASSET } from '../core/money.js';
 import { addMonths, monthsRange } from '../core/util.js';
+import { MASK, isCustomizing, isHidden, groupHidden, maskDigits, privacyKey, toggleItemPrivacy } from './privacy.js';
 
 // ---------- إشعار ----------
 let toastTimer = null;
@@ -162,12 +163,29 @@ export function errorBox() {
 }
 
 // ---------- عناصر العرض ----------
-export function row({ title, subtitle = '', value = '', valueClass = '', badge = null, onclick = null, cls = '', end = null }) {
+// زر عين صغير يظهر في وضع «تخصيص الإخفاء» لإخفاء/إظهار بند واحد.
+function eyeToggle(group, key, hidden) {
+  const el = h('span', { class: `eye-toggle ${hidden ? 'off' : ''}`, role: 'button', tabIndex: 0, 'aria-label': hidden ? 'إظهار هذا البند' : 'إخفاء هذا البند', 'aria-pressed': hidden ? 'true' : 'false' }, icon(hidden ? 'eyeOff' : 'eye', 18));
+  el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    toggleItemPrivacy(group, key);
+  });
+  return el;
+}
+const pgroup = (pg) => pg || ctx.pgroup || 'other';
+
+// pg: مجموعة الخصوصية (الافتراضي مجموعة الشاشة)، pk: مفتاح البند (الافتراضي من العنوان)، maskSub: إخفاء أرقام السطر الفرعي أيضاً.
+export function row({ title, subtitle = '', value = '', valueClass = '', badge = null, onclick = null, cls = '', end = null, pg = null, pk = null, maskSub = true }) {
+  const group = pgroup(pg);
+  const key = pk || privacyKey(group, title);
+  const sensitive = value !== '';
+  const hidden = sensitive && isHidden(group, key);
   return h(
     onclick ? 'button' : 'div',
     { class: `row ${cls}`, onclick },
-    h('div', { class: 'main' }, h('div', { class: 'title', text: title }), subtitle ? h('div', { class: 'subtitle', text: subtitle }) : null),
-    h('div', { class: 'end' }, value !== '' ? h('div', { class: `value num ${valueClass}`, text: value }) : null, badge, end),
+    h('div', { class: 'main' }, h('div', { class: 'title', text: title }), subtitle ? h('div', { class: 'subtitle', text: hidden && maskSub ? maskDigits(subtitle) : subtitle }) : null),
+    h('div', { class: 'end' }, sensitive ? h('div', { class: `value num ${hidden ? 'masked' : valueClass}`, text: hidden ? MASK : value }) : null, hidden ? null : badge, hidden ? null : end, sensitive && isCustomizing() ? eyeToggle(group, key, hidden) : null),
   );
 }
 
@@ -175,10 +193,26 @@ export const badge = (text, kind = '') => h('span', { class: `badge ${kind}`, te
 export const empty = (text) => h('div', { class: 'empty', text });
 export const list = (...rows) => h('div', { class: 'list' }, rows);
 export const sectionTitle = (text, action = null) => h('div', { class: 'section-title' }, h('span', { text }), action);
-export const kv = (k, v, cls = '') => h('div', { class: 'kv' }, h('span', { class: 'k', text: k }), h('span', { class: `v ${cls}` }, v));
+// سطر (مفتاح: قيمة). القيم النصية ذات الأرقام تُخفى مع مجموعتها؛ secret:false لما ليس رصيداً (تاريخ، عدد أفراد…).
+export function kv(k, v, cls = '', { pg = null, secret = null } = {}) {
+  const group = pgroup(pg);
+  const key = privacyKey(group, k);
+  const sensitive = secret ?? (typeof v === 'string' && /[\d٠-٩]/.test(v) && / ج|ج$|[\d٠-٩],[\d٠-٩]|^[-+]?[\d٠-٩.,٬٫]+$/.test(v));
+  const hidden = sensitive && isHidden(group, key);
+  return h('div', { class: 'kv' }, h('span', { class: 'k', text: k }), h('span', { class: `v ${hidden ? 'masked' : cls}` }, hidden ? MASK : v), sensitive && isCustomizing() ? eyeToggle(group, key, hidden) : null);
+}
 
-export function stat(label, value, { hint = '', cls = '', onclick = null, valueClass = '' } = {}) {
-  return h(onclick ? 'button' : 'div', { class: `stat ${cls}`, onclick }, h('div', { class: 'label', text: label }), h('div', { class: `value num ${valueClass}`, text: value }), hint ? h('div', { class: 'hint', text: hint }) : null);
+export function stat(label, value, { hint = '', cls = '', onclick = null, valueClass = '', pg = null, pk = null } = {}) {
+  const group = pgroup(pg);
+  const key = pk || privacyKey(group, label);
+  const hidden = isHidden(group, key);
+  return h(
+    onclick ? 'button' : 'div',
+    { class: `stat ${cls}`, onclick },
+    h('div', { class: 'label', text: label }, isCustomizing() ? eyeToggle(group, key, hidden) : null),
+    h('div', { class: `value num ${hidden ? 'masked' : valueClass}`, text: hidden ? MASK : value }),
+    hint ? h('div', { class: 'hint', text: hidden ? maskDigits(hint) : hint }) : null,
+  );
 }
 
 export function chips(options, value, onchange) {
@@ -245,7 +279,7 @@ export function monthGrid(months, { onTap = null, amountOf = (m) => (m.remaining
         onTap ? 'button' : 'div',
         { class: `month ${m.status}`, onclick: onTap ? () => onTap(m) : null, 'aria-label': `${F.month(m.month)}: ${STATUS_LABEL[m.status]}` },
         h('div', { class: 'm', text: F.monthShort(m.month) }),
-        h('div', { class: 'a num', text: m.status === 'none' ? '' : F.money(amountOf(m)) }),
+        h('div', { class: 'a num', text: m.status === 'none' ? '' : groupHidden(ctx.pgroup) ? '••' : F.money(amountOf(m)) }),
         h('div', { class: 's', text: STATUS_LABEL[m.status] }),
       ),
     ),
@@ -258,8 +292,13 @@ export function monthLegend(kind = 'subscriber') {
 }
 
 // جدول تقرير بسيط: columns [{label, num?}] و rows مصفوفات نصوص.
-export function table(columns, rows, { totalRow = null } = {}) {
+export function table(columns, rows, { totalRow = null, pg = null } = {}) {
   const t = h('table', { class: 'report' });
+  if (groupHidden(pgroup(pg))) {
+    const mask = (r) => r.map((cell, i) => (columns[i].num && cell !== '' ? MASK : cell));
+    rows = rows.map(mask);
+    if (totalRow) totalRow = mask(totalRow);
+  }
   t.append(h('thead', {}, h('tr', {}, columns.map((c) => h('th', { class: c.num ? 'n' : '', text: c.label })))));
   const tb = h('tbody', {});
   for (const r of rows) tb.append(h('tr', {}, r.map((cell, i) => h('td', { class: columns[i].num ? 'n num' : '', text: cell }))));

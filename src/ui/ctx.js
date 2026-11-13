@@ -5,6 +5,7 @@ import { currentFiscalYear, precisionAt, stepsAt } from '../core/engine.js';
 
 export const ctx = {
   store: null,
+  pgroup: 'other', // مجموعة الخصوصية للشاشة المعروضة (يضبطها app.js عند كل رسم)
   get state() {
     return this.store.state;
   },

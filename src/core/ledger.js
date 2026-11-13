@@ -259,3 +259,48 @@ export function inventoryCost(ledger) {
   for (const it of ledger.items.values()) s += it.cost;
   return s;
 }
+
+// رصيد مجمَّع (للعرض فقط): مجموع نقد الصناديق المختارة. لا يغيّر حساب أي صندوق — كل صندوق يبقى بحساباته وأصوله.
+export function rollupBalance(state, ledger, rollup) {
+  const parts = (rollup.funds || []).filter((id) => state.lists.funds.has(id)).map((id) => ({ fund: state.lists.funds.get(id), cash: fundCash(ledger, id) }));
+  return { rollup, parts, total: parts.reduce((a, p) => a + p.cash, 0) };
+}
+
+export function rollups(state, ledger) {
+  return (state.settings.rollups || []).map((r) => rollupBalance(state, ledger, r));
+}
+
+// المجاميع التي يدخل فيها صندوق.
+export const rollupsOfFund = (state, fundId) => (state.settings.rollups || []).filter((r) => (r.funds || []).includes(fundId));
+
+// نظرة على نوع أصل عبر كل الصناديق (مثلاً الذهب): إجمالي للمعرفة فقط، وتفصيل كل صندوق على حدة دون دمج الحسابات.
+// الكميات تُجمع لكل وحدة قياس على حدة (جرام مع جرام).
+export function assetsByKind(state, ledger, date = '9999-12-31') {
+  const kinds = new Map();
+  for (const a of state.lists.assets.values()) {
+    const p = assetPosition(state, ledger, a.id, date);
+    if (a.archived && p.qty === 0 && p.cost === 0) continue;
+    if (!kinds.has(a.kind)) kinds.set(a.kind, { kind: a.kind, cost: 0, value: 0, units: new Map(), funds: new Map() });
+    const k = kinds.get(a.kind);
+    k.cost += p.cost;
+    k.value += p.value;
+    k.units.set(a.unit, (k.units.get(a.unit) || 0) + p.qty);
+    if (!k.funds.has(a.fundId)) k.funds.set(a.fundId, { fundId: a.fundId, cost: 0, value: 0, units: new Map(), assets: [] });
+    const f = k.funds.get(a.fundId);
+    f.cost += p.cost;
+    f.value += p.value;
+    f.units.set(a.unit, (f.units.get(a.unit) || 0) + p.qty);
+    f.assets.push({ asset: a, pos: p });
+  }
+  const units = (m) => [...m].map(([unit, qty]) => ({ unit, qty }));
+  return [...kinds.values()].map((k) => ({ ...k, units: units(k.units), funds: [...k.funds.values()].map((f) => ({ ...f, units: units(f.units) })) }));
+}
+
+// كل ما يتبع صندوقاً: نقده، حساباته الفرعية، أصوله (كل أصل بتقييمه)، والإجمالي.
+export function fundHoldings(state, ledger, fundId, date = '9999-12-31') {
+  const cash = fundCash(ledger, fundId);
+  const assets = [...state.lists.assets.values()].filter((a) => a.fundId === fundId).map((asset) => ({ asset, pos: assetPosition(state, ledger, asset.id, date) })).filter((x) => !x.asset.archived || x.pos.qty !== 0 || x.pos.cost !== 0);
+  const assetsCost = assets.reduce((a, x) => a + x.pos.cost, 0);
+  const assetsValue = assets.reduce((a, x) => a + x.pos.value, 0);
+  return { fundId, cash, subs: subAccounts(ledger, fundId).filter((a) => a.balance !== 0), assets, assetsCost, assetsValue, total: cash + assetsValue };
+}

@@ -11,8 +11,9 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="دفتر الخير" />
     <meta name="format-detection" content="telephone=no" />
-    <!-- سياسة أمان المحتوى: لا يُحمَّل ولا يُرسَل أي شيء خارج هذا الموقع، ولا يُنفَّذ كود مضمَّن -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <!-- سياسة أمان المحتوى: لا يُحمَّل ولا يُنفَّذ أي كود من خارج هذا الموقع ولا كود مضمَّن.
+         الاتصال الخارجي الوحيد المسموح: واجهة Google Drive (www.googleapis.com) للنسخ الاحتياطي التلقائي، ولا يُستخدم إلا إذا فعّله صاحب الدفتر. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://www.googleapis.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
     <meta name="referrer" content="no-referrer" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />

@@ -1,6 +1,7 @@
 // الدفتر: مصفوفة أحداث + الحالة المشتقة. كل تغيير يمر من dispatch (تحقق ثم إلحاق).
 import { DEFAULT_EXPENSE_TYPES, DEFAULT_FAMILY_CATEGORIES, DEFAULT_FUNDS, DEFAULT_ITEMS, DEFAULT_PURPOSES } from '../config/defaults.js';
 import { applyEvent, buildState, nextVoucher } from './engine.js';
+import { NEED_DEFAULT_CONFIG } from '../config/need-config.js';
 import { validateEvent } from './validate.js';
 import { computeLedger } from './ledger.js';
 import { ValidationError, newId } from './util.js';
@@ -16,7 +17,13 @@ export function seedEvents() {
   DEFAULT_EXPENSE_TYPES.forEach((x) => add('expenseTypes', x));
   DEFAULT_FAMILY_CATEGORIES.forEach((x) => add('familyCategories', x));
   DEFAULT_ITEMS.forEach((x) => add('items', x));
+  out.push(needConfigSeedEvent());
   return out;
+}
+
+// النسخة الأولى من إعداد الحاسبة تُزرع صراحةً في السجل (بمعرّف ثابت) حتى يبقى رقم النسخة المسجَّل في كل تقييم يشير لإعداد محفوظ.
+export function needConfigSeedEvent() {
+  return { id: 'seed-need-config-1', ts: SEED_TS, type: 'need.config.set', data: { from: '2000-01', version: 1, config: JSON.parse(JSON.stringify(NEED_DEFAULT_CONFIG)), note: 'الإعداد الافتراضي (الدليل — نوفمبر 2026)' } };
 }
 
 export class Book {

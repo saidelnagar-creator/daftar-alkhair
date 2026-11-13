@@ -2,6 +2,10 @@
 import { h } from '../dom.js';
 import { ctx, F } from '../ctx.js';
 import { stat, sectionTitle } from '../components.js';
+import { computeLedger, rollups } from '../../core/ledger.js';
+import { dueReviews } from '../../core/need.js';
+import { driveStatus } from '../../storage/drive-sync.js';
+import { driveConnect } from '../../storage/drive-sync.js';
 import { movementList } from '../widgets.js';
 import { dashboard, searchMovements } from '../../core/reports.js';
 import { exportBackupNow } from './settings.js';
@@ -13,7 +17,18 @@ export function homeScreen() {
   const body = h('div', {});
   // حالة النسخ الاحتياطي ظاهرة دائماً متى وُجد ما لم يُنسخ — والنسخ بنقرة واحدة
   const unsaved = ctx.store.unsavedChanges();
-  if (unsaved > 0) {
+  const drive = driveStatus(ctx.store);
+  if (drive.state === 'needs-auth' || drive.state === 'error') {
+    body.append(
+      h(
+        'div',
+        { class: 'banner' },
+        h('span', { class: 'grow', text: drive.state === 'needs-auth' ? `النسخ التلقائي على Drive متوقف — جدّد الاتصال${drive.pending ? ` (${F.num(drive.pending)} تغيير لم يُرفع)` : ''}.` : `تعذّر الرفع إلى Drive: ${drive.error}` }),
+        drive.state === 'needs-auth' ? h('button', { class: 'btn small', text: 'تجديد', onclick: () => driveConnect(ctx.store, { silent: !!drive.lastAt }) }) : h('button', { class: 'btn small', text: 'النسخ', onclick: () => ctx.nav('#/backup') }),
+      ),
+    );
+  }
+  if (unsaved > 0 && drive.state !== 'ok' && drive.state !== 'pending') {
     const last = ctx.store.meta.lastBackupAt;
     const days = last ? Math.floor((Date.now() - new Date(last)) / 86400000) : null;
     const due = ctx.store.backupDue();
@@ -40,13 +55,19 @@ export function homeScreen() {
       action('🔁', 'تحويل', () => transferForm()),
       action('🛒', 'شراء', () => purchaseForm()),
       action('📦', 'تبرع عيني', () => inkindReceiptForm()),
+      action('👥', 'صرف مجمّع', () => ctx.nav('#/batch')),
+      action('📊', 'التقارير', () => ctx.nav('#/reports')),
     ),
   );
+  const pools = rollups(S, computeLedger(S));
+  const reviews = dueReviews(S, ctx.nowMonth());
+  if (reviews.length) body.append(h('div', { class: 'banner info' }, h('span', { class: 'grow', text: `مراجعات مستحقة: ${F.num(reviews.length)} أسرة حلّ موعد مراجعة تقييمها.` }), h('button', { class: 'btn small', text: 'عرض', onclick: () => ctx.nav('#/reviews') })));
   body.append(
     h(
       'div',
       { class: 'stats' },
       stat('إجمالي السيولة', F.money(d.totalCash), { cls: 'primary', hint: `الصندوق العام ${F.money(d.general)}`, onclick: () => ctx.nav('#/funds') }),
+      ...pools.map((p) => stat(p.rollup.name, F.money(p.total), { hint: p.parts.map((x) => x.fund.name).join(' + '), onclick: () => ctx.nav('#/funds') })),
       stat('المتأخرات', F.money(d.arrearsTotal), { hint: `${F.num(d.arrearsCount)} مشترك`, valueClass: d.arrearsTotal ? 'neg' : '', onclick: () => ctx.nav('#/arrears') }),
       stat('وارد هذا الشهر', F.money(d.monthIn), { valueClass: 'pos' }),
       stat('منصرف هذا الشهر', F.money(d.monthOut), { valueClass: 'neg' }),

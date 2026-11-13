@@ -4,7 +4,7 @@ import { ctx, F } from '../ctx.js';
 import { row, list, empty, sectionTitle, stat, kv, chips, badge, selectInput, toast } from '../components.js';
 import { ui, movementList, collator } from '../widgets.js';
 import { acctLabel, isLockedDate, targetAcct, voucherText } from '../../core/engine.js';
-import { computeLedger, assetPosition, itemPosition, cashPostings } from '../../core/ledger.js';
+import { computeLedger, assetPosition, assetsByKind, itemPosition, cashPostings } from '../../core/ledger.js';
 import { allArrears } from '../../core/subscriptions.js';
 import { allFamilyDues } from '../../core/families.js';
 import { describeMovement, searchMovements, payerName } from '../../core/reports.js';
@@ -17,7 +17,10 @@ export function moreScreen() {
   const body = h(
     'div',
     {},
-    list(link('المتأخرات', 'من عليه شهور ناقصة، و«لن يُسدد»', '#/arrears'), link('المخزن العيني', 'وارد وصادر وفائض', '#/inventory'), link('الذهب والاستثمار', 'المدفوع / الحالي / الربح', '#/assets'), link('التقارير', 'بالشهر، بالشخص، بالفئة، بالحملة، بالصندوق', '#/reports'), link('كل الحركات', 'بحث وفلترة وتعديل وإلغاء', '#/ledger')),
+    list(link('التقارير', 'لوحة القرار، تقارير للمشاركة، تقرير حركات، قوائم مالية', '#/reports'), link('المتأخرات', 'من عليه شهور ناقصة، و«لن يُسدد»', '#/arrears'), link('كل الحركات', 'بحث وفلترة وتعديل وإلغاء', '#/ledger')),
+    list(link('صرف مجمّع', 'نقدي أو عيني لعدة أسر وعدة شهور مرة واحدة', '#/batch'), link('خطة الشراء', 'كميات مقترحة حسب الالتزام العيني — يبقى السعر فقط', '#/purchase-plan'), link('المخزن العيني', 'وارد وصادر وفائض', '#/inventory')),
+    list(link('توزيع الشهر', 'ميزانية الزكاة والصدقة ← اقتراح لكل أسرة', '#/allocation'), link('مراجعات التقييم', 'ما حلّ موعده، وأسر بلا تقييم', '#/reviews'), link('إعداد حاسبة الاحتياج', 'الأسعار، R، الأوزان، العتبات — بنسخ مؤرخة', '#/need-config')),
+    list(link('الأصول: ذهب واستثمار ووقف', 'كل صندوق بأصوله، ونظرة حسب النوع', '#/assets'), link('صندوق الأضحية', 'اشتراكات ونِسب — منفصل، ويدخل الحساب نصيب الفقراء فقط', '#/udhiya')),
     list(link('النسخ الاحتياطي', 'تصدير / استيراد / نسخ تلقائية', '#/backup'), link('الإقفال السنوي والأرشيف', 'معاينة، إقفال، تراجع', '#/closing'), link('القوائم', 'صناديق، حملات، أصناف، فئات، أغراض، أنواع مصروف', '#/lists'), link('الإعدادات', 'الاسم، القفل، النقاط، التذكير', '#/settings')),
     list(link('سجل التدقيق', 'كل ما أُدخل وعُدّل وأُلغي', '#/audit'), link('دليل الاستخدام', 'صفحة واحدة', '#/help')),
   );
@@ -184,9 +187,29 @@ export function assetsScreen() {
       h('button', { class: 'btn', text: 'عائد', onclick: () => assetIncomeForm() }),
     ),
   );
+  const st = ui('assets', { view: 'fund' });
+  body.append(
+    chips(
+      [
+        { value: 'fund', label: 'حسب الصندوق' },
+        { value: 'kind', label: 'حسب النوع (في كل الصناديق)' },
+      ],
+      st.view,
+      (v) => ((st.view = v), ctx.refresh()),
+    ),
+  );
   body.append(sectionTitle('الأصول', h('button', { text: '+ أصل جديد', onclick: () => listItemForm('assets') })));
-  if (!byFund.size) body.append(empty('لا توجد أصول — أضف أصلاً (ذهب، عملة، ممتلكات، استثمار) ثم سجّل الشراء.'));
-  for (const [fundId, arr] of byFund) {
+  if (st.view === 'kind') {
+    const kinds = assetsByKind(S, led, today);
+    if (!kinds.length) body.append(empty('لا توجد أصول'));
+    for (const k of kinds) {
+      body.append(
+        h('div', { class: 'card' }, kv(`${ASSET_KINDS[k.kind] || k.kind} — إجمالي كل الصناديق`, F.egp(k.value)), kv('الكمية', k.units.map((u) => `${F.aqty(u.qty)} ${u.unit}`).join(' + '), '', { secret: true }), kv('المدفوع', F.egp(k.cost)), h('div', { class: 'muted small', text: 'الإجمالي للمعرفة فقط — كل صندوق يحتفظ بأصله وحسابه كما في التفصيل:' })),
+        list(k.funds.map((f) => row({ title: S.lists.funds.get(f.fundId)?.name || '', subtitle: `${f.units.map((u) => `${F.aqty(u.qty)} ${u.unit}`).join(' + ')} · المدفوع ${F.money(f.cost)}`, value: F.money(f.value), onclick: () => ctx.nav(`#/fund/${encodeURIComponent(f.fundId)}`) }))),
+      );
+    }
+  } else if (!byFund.size) body.append(empty('لا توجد أصول — أضف أصلاً (ذهب، عملة، ممتلكات، استثمار) ثم سجّل الشراء.'));
+  for (const [fundId, arr] of st.view === 'kind' ? [] : byFund) {
     body.append(h('div', { class: 'muted small', style: { margin: '10px 4px 4px' }, text: S.lists.funds.get(fundId)?.name || '' }));
     body.append(
       list(
@@ -324,7 +347,13 @@ export function movementScreen({ id }) {
     body.append(sectionTitle('الأصناف'));
     body.append(list(mv.items.map((it) => row({ title: S.lists.items.get(it.itemId)?.name || '', subtitle: `${F.qty(it.qty)} ${S.lists.items.get(it.itemId)?.unit || ''}`, value: it.value !== undefined ? F.money(it.value) : '' }))));
   }
-  if (mv.inkindMonths?.length) body.append(h('div', { class: 'card' }, kv('يسدد استحقاق شهور', mv.inkindMonths.map((m) => F.month(m)).join('، '))));
+  if (mv.inkindMonths?.length) body.append(h('div', { class: 'card' }, kv('يسدد استحقاق شهور', mv.inkindMonths.map((m) => F.month(m)).join('، '), '', { secret: false })));
+  if (mv.inkindLines?.length) {
+    body.append(sectionTitle('يستوفي من الالتزام العيني'));
+    body.append(list(mv.inkindLines.map((l) => row({ title: `${S.lists.items.get(l.itemId)?.name || ''} — ${F.month(l.month)}`, value: `${F.qty(l.qty)} ${S.lists.items.get(l.itemId)?.unit || ''}` }))));
+  }
+  if (mv.udhiyaId) body.append(h('div', { class: 'card' }, kv('من أضحية', h('button', { class: 'link', text: S.udhiya.get(mv.udhiyaId)?.name || 'عرض', onclick: () => ctx.nav(`#/udhiya/${mv.udhiyaId}`) }))));
+  if (mv.batchId) body.append(h('div', { class: 'muted small', style: { margin: '4px' }, text: 'ضمن صرف مجمّع' }));
 
   if (!mv.voided && ['receipt', 'inkind_receipt', 'distribution'].includes(mv.kind)) {
     body.append(h('div', { class: 'btn-row' }, h('button', { class: 'btn', text: 'مشاركة إيصال', onclick: () => shareReceipt(S, mv, d) })));
@@ -415,6 +444,11 @@ const EVENT_LABEL = {
   'due.decision': 'قرار على متأخر',
   'year.close': 'إقفال سنة',
   'year.reopen': 'تراجع عن إقفال',
+  'family.inkind.set': 'التزام عيني لأسرة',
+  'need.config.set': 'نسخة إعداد الحاسبة',
+  'need.assessment.save': 'تقييم احتياج',
+  'need.file.upsert': 'ملف دين / مرة واحدة',
+  'udhiya.upsert': 'ذبيحة أضحية',
 };
 
 function describeEvent(S, ev) {
@@ -448,6 +482,16 @@ function describeEvent(S, ev) {
       return { text: `سنة ${F.num(d.year)}`, path: '#/closing' };
     case 'settings.set':
       return { text: d.key };
+    case 'family.inkind.set':
+      return { text: `${S.families.get(d.familyId)?.name || ''} من ${F.month(d.from)}`, path: `#/family/${d.familyId}` };
+    case 'need.assessment.save':
+      return { text: `${S.families.get(d.familyId)?.name || ''} — ${d.status === 'approved' ? 'معتمد' : 'مسودة'}`, path: `#/assessment/${d.id}` };
+    case 'need.file.upsert':
+      return { text: S.families.get(d.familyId || S.needFiles.get(d.id)?.familyId)?.name || '', path: `#/family/${d.familyId || S.needFiles.get(d.id)?.familyId}` };
+    case 'need.config.set':
+      return { text: `نسخة ${d.version} من ${F.month(d.from)}`, path: '#/need-config' };
+    case 'udhiya.upsert':
+      return { text: d.name || S.udhiya.get(d.id)?.name || '', path: `#/udhiya/${d.id}` };
     default:
       return { text: '' };
   }

@@ -1,7 +1,8 @@
 // محرك الحالة: الدفتر سجل أحداث append-only، والحالة كلها مشتقة منه بإعادة التشغيل.
 // لا يوجد أي رصيد مخزَّن: الأرصدة تُحسب في ledger.js من الحركات.
 // هذا الملف خالص (بدون DOM أو IndexedDB) ويُختبر في Node.
-import { DEFAULT_CRITERIA, DEFAULT_POINT_VALUE } from '../config/defaults.js';
+import { DEFAULT_CRITERIA, DEFAULT_POINT_VALUE, DEFAULT_ROLLUPS } from '../config/defaults.js';
+import { NEED_DEFAULT_CONFIG } from '../config/need-config.js';
 import { RULES } from '../config/rules.js';
 import { stepFor } from './money.js';
 import { cmp, yearOf } from './util.js';
@@ -19,6 +20,11 @@ export const EVENT_TYPES = Object.freeze([
   'due.decision',
   'year.close',
   'year.reopen',
+  'family.inkind.set', // التزام عيني شهري لأسرة بتاريخ سريان
+  'need.config.set', // نسخة مؤرخة من إعداد حاسبة الاحتياج
+  'need.assessment.save', // تقييم أسرة (مسودة أو معتمد): المدخلات + النتيجة + نسخة الإعداد والمحرك + قرار اللجنة
+  'need.file.upsert', // ملف دين أو طلب «مرة واحدة» لأسرة
+  'udhiya.upsert', // ذبيحة أضحية (اشتراكات ونِسب وتكاليف) — خارج حسابات المشروع إلا نصيب الفقراء
 ]);
 
 export const LISTS = Object.freeze(['funds', 'campaigns', 'purposes', 'expenseTypes', 'items', 'familyCategories', 'assets']);
@@ -36,6 +42,7 @@ export function emptyState() {
       pointValue: JSON.parse(JSON.stringify(DEFAULT_POINT_VALUE)),
       precision: [{ from: '2000-01', ...RULES.precisionDefault }],
       backupReminderDays: null,
+      rollups: JSON.parse(JSON.stringify(DEFAULT_ROLLUPS)),
     },
     lists,
     subscribers: new Map(),
@@ -46,6 +53,10 @@ export function emptyState() {
     decisions: new Map(), // "entity:id:month" -> [{decision,date,reason,ts,closingYear}]
     closings: [], // [{year, ts, checkpoint, reopened}]
     vouchers: { R: 0, P: 0, J: 0 }, // آخر رقم سند لكل سلسلة (قبض / صرف / قيد)
+    needConfigs: [], // [{from, version, config, note, ts}] نسخ إعداد الحاسبة
+    assessments: new Map(), // id -> تقييم أسرة (آخر حفظ له)
+    needFiles: new Map(), // id -> ملف دين / مرة واحدة
+    udhiya: new Map(), // id -> ذبيحة
     _cache: {},
   };
 }
@@ -81,8 +92,8 @@ export function applyEvent(state, ev) {
       break;
     }
     case 'family.upsert': {
-      const old = state.families.get(d.id) || { profiles: [] };
-      state.families.set(d.id, { ...old, ...d, profiles: old.profiles });
+      const old = state.families.get(d.id) || { profiles: [], inkind: [] };
+      state.families.set(d.id, { ...old, ...d, profiles: old.profiles, inkind: old.inkind || [] });
       break;
     }
     case 'family.profile.set': {
@@ -130,6 +141,26 @@ export function applyEvent(state, ev) {
       }
       break;
     }
+    case 'family.inkind.set': {
+      const f = state.families.get(d.familyId);
+      if (f) {
+        if (!f.inkind) f.inkind = [];
+        upsertVersion(f.inkind, 'from', { from: d.from, lines: d.lines || [], note: d.note || '', ts: ev.ts });
+      }
+      break;
+    }
+    case 'need.config.set':
+      upsertVersion(state.needConfigs, 'from', { from: d.from, version: d.version, config: d.config, note: d.note || '', ts: ev.ts });
+      break;
+    case 'need.assessment.save':
+      state.assessments.set(d.id, { ...d, ts: ev.ts, createdAt: state.assessments.get(d.id)?.createdAt || ev.ts });
+      break;
+    case 'need.file.upsert':
+      state.needFiles.set(d.id, { ...(state.needFiles.get(d.id) || {}), ...d, ts: ev.ts });
+      break;
+    case 'udhiya.upsert':
+      state.udhiya.set(d.id, { ...(state.udhiya.get(d.id) || {}), ...d, ts: ev.ts });
+      break;
     default:
       break; // أنواع مجهولة تُتجاهل (توافق أمامي)
   }
@@ -215,6 +246,20 @@ export function profileAt(state, familyId, month) {
   const f = state.families.get(familyId);
   if (!f) return null;
   return versionAt(f.profiles, 'from', month);
+}
+
+// الالتزام العيني الشهري الساري لأسرة في شهر: [{itemId, qty, alts}] (فارغ = لا التزام).
+export function inkindPlanAt(state, familyId, month) {
+  const f = state.families.get(familyId);
+  if (!f || !f.inkind) return [];
+  const v = versionAt(f.inkind, 'from', month);
+  return v ? v.lines : [];
+}
+
+// نسخة إعداد الحاسبة السارية في شهر (نسخ زمنية؛ بلا نسخة محفوظة ← الإعداد الافتراضي بنسخة 0).
+export function needConfigAt(state, month) {
+  const v = versionAt(state.needConfigs || [], 'from', String(month).slice(0, 7));
+  return v || { from: '2000-01', version: 0, config: NEED_DEFAULT_CONFIG, note: 'الإعداد الافتراضي' };
 }
 
 export function pointValueAt(state, month) {
